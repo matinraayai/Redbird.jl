@@ -1,0 +1,6 @@
+[submodule "matlab/iso2mesh"]
+	path = matlab/iso2mesh
+	url = https://github.com/fangq/iso2mesh
+[submodule "matlab/mcx"]
+	path = matlab/mcx
+	url = https://github.com/fangq/mcx

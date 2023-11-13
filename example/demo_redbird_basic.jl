@@ -1,3 +1,4 @@
+"""
 ########################################################
 # Redbird - A Diffusion Solver for Diffuse Optical Tomography; 
 #      Copyright Qianqina Fang; 2018
@@ -6,12 +7,16 @@
 #
 # This file is part of Redbird URL:http://mcx.sf.net/mmc
 ########################################################
+"""
+
 using Redbird
 using MATLAB
 
+"""
 ########################################################
 ##   prepare simulation input()
 ########################################################
+"""
 
 mat"clear cfg"
 mat"addpath('./iso2mesh')"
