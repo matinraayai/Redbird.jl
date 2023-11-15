@@ -4,3 +4,6 @@
 [submodule "matlab/mcx"]
 	path = matlab/mcx
 	url = https://github.com/fangq/mcx
+[submodule "src/redbird-m"]
+	path = src/redbird-m
+	url = https://github.com/fangq/redbird-m
