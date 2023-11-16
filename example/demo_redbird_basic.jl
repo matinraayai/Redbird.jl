@@ -57,12 +57,13 @@ mat"
     cfg_mat.omega = 0;
 
     cfg_mat = rbmeshprep(cfg_mat);
-    [$detval_mat, $phi_mat, $Amat_mat, $rhs_mat] = rbrunforward(cfg_mat);
+    [$detval_mat, $phi_mat, $Amat_mat, $rhs_mat] = rbrunforward(cfg_mat, 'solverflag', {'qmr',});
 "
 @show typeof(detval_mat), typeof(phi_mat), typeof(Amat_mat), typeof(rhs_mat)
 @show sum(Amat_mat), sum(Amat)
 @show sum(rhs_mat), sum(rhs)
 @show sum(phi_mat), sum(ϕ), sum(phi_mat - ϕ), sum(phi_mat ./ ϕ)
+@show detval, detval_mat
 #print("forward solution ... \t$(forward_stats.time) seconds\n")
 
 ########################################################
