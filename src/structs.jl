@@ -1,7 +1,5 @@
 module Structs
 
-using MATLAB
-
 export Float3, Float4, Integer3, Integer4, Medium, Config, TetMesh, RbForward, RBConfig
 
 AbstractVectorType{N, T} = NTuple{N, VecElement{T}} where{N, T <: Number}
@@ -88,6 +86,83 @@ end
 
 Base.delete!(x::RBConfig, s::Symbol) = return Base.delete!(x.cfg, s)
 
+Optional{T} = Union{T, Nothing}
+
+# Base.convert(::Type{T}, x::Optional{T}) where {T} = T(x)
+
+mutable struct Bulk{FT <: AbstractFloat}
+    mua::Optional{FT}
+    dcoeff::Optional{FT}
+    musp::Optional{FT}
+    g::Optional{FT} 
+    n::Optional{FT}
+end
+
+
+# Make all the types of the struct below Optional
+
+@kwdef mutable struct RBConfigJL
+    node::Optional{Array{Float64}} = nothing
+    elem::Optional{Array{Int}} = nothing
+    face::Optional{Array{Int}} = nothing
+    wavelengths::Optional{Vector{String}} = nothing
+    seg::Optional{Array{Int}} = nothing
+    area::Optional{Vector{Float64}} = nothing
+    isreoriented::Bool = false
+    idxcount::Optional{Matrix{Float64}} = nothing
+    evol::Optional{Vector{Float64}} = nothing
+    detdir::Optional{Matrix{Int}} = nothing
+    idxsum::Optional{Matrix{Float64}} = nothing
+    detpos::Optional{Matrix{Float64}} = nothing
+    detpos0::Optional{Matrix{Float64}} = nothing
+    dettype::Optional{Symbol} = nothing
+    cols::Optional{Matrix{Float64}} = nothing
+    srcdir::Optional{Matrix{Int}} = nothing
+    ω::Optional{Matrix{Float64}} = nothing
+    srcpos::Optional{Matrix{Float64}} = nothing
+    srcpos0::Optional{Matrix{Float64}} = nothing
+    srctype::Optional{Symbol} = nothing
+    rows::Optional{Matrix{Float64}} = nothing
+    nvol::Optional{Array{Float64}} = nothing
+    ∇ϕ_i∇ϕ_j::Optional{Matrix{Float64}} = nothing
+    ∇ϕ::Optional{Array{Float64}} = nothing
+    reff::Optional{Array{Float64}} = nothing
+    μ_sp0::Optional{Array{Float64}} = nothing
+    bulk::Optional{Bulk{Float64}} = nothing
+end
+
+# function RBConfigJL() 
+#     return RBConfigJL{Float64, Int64}(
+#         [],
+#         [],
+#         [],
+#         [],
+#         [],
+#         [],
+#         false,
+#         [],
+#         [],
+#         [],
+#         [],
+#         [],
+#         [],
+#         Symbol(),
+#         [],
+#         [],
+#         [],
+#         [],
+#         [],
+#         Symbol(),
+#         [],
+#         [],
+#         [],
+#         [],
+#         [],
+#         [],
+#         Bulk{Float64}(nothing, nothing, nothing, nothing, nothing),
+#     )
+# end
+
 struct Config{T <: AbstractFloat}
     omega::T
     reff::T
@@ -144,18 +219,18 @@ struct Jacobian
     relem::Array{Float64, 1}
 end
 
-function rbmeshprep(cfg::RBConfig)
-    mat"addpath($(redbird_m_path))"
-    cfg = RBConfig(mxcall(:rbmeshprep, 1, cfg.cfg))
-    for (k, v) ∈ cfg.cfg
-        @show k, typeof(v)
-    end
-    if hasproperty(cfg, :deldotdel)
-        cfg.∇ϕ_i∇ϕ_j = cfg.deldotdel
-        # delete!(cfg, :deldotdel)
-    end
-    return cfg
-end 
+# function rbmeshprep(cfg::RBConfig)
+#     mat"addpath($(redbird_m_path))"
+#     cfg = RBConfig(mxcall(:rbmeshprep, 1, cfg.cfg))
+#     for (k, v) ∈ cfg.cfg
+#         @show k, typeof(v)
+#     end
+#     if hasproperty(cfg, :deldotdel)
+#         cfg.∇ϕ_i∇ϕ_j = cfg.deldotdel
+#         # delete!(cfg, :deldotdel)
+#     end
+#     return cfg
+# end 
 
 # """
 

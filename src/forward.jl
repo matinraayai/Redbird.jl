@@ -4,19 +4,15 @@ using SparseArrays
 using LinearAlgebra
 using Krylov
 using Match
-using MATLAB
 using Debugger
 using Combinatorics
 
 # using ..Redbird: redbird_m_path
 using ..iso2mesh: meshedge, tsearchn
-using ..Structs: RBConfig
-
-
+using ..Structs: RBConfig, RBConfigJL
+using ..JlMatBindings
 
 export rbgetbulk, rbrunforward
-
-redbird_m_path = Base.Filesystem.joinpath(@__DIR__(), "redbird-m/matlab/")
 
 # https://stackoverflow.com/questions/46289554/drop-julia-array-dimensions-of-length-1
 squeeze(M::AbstractArray) = dropdims(M, dims=tuple(findall(size(M) .== 1)...))
@@ -28,79 +24,126 @@ squeeze(M::AbstractArray) = dropdims(M, dims=tuple(findall(size(M) .== 1)...))
  Return the optical properties of the "bulk" medium, which is considered
  the medium on the outer-most layer and is interfaced directly with air
 
- author: Qianqian Fang (q.fang <at> neu.edu)
+ author: Qianqian Fang (q.fang @ neu.edu)
 
  input:
      `cfg`: the forward simulation data structure
 
  output:
-     `bkprop`: the optical property quadruplet in the order of 
+     `bkprop`: the optical property quadruplet in the order of
              [μ_a(1/mm), μ_s(1/mm), g, n]
          if single wavelength, and a containers.Map object made of the
          above quadruplet for each wavelength.
 
  license:
-     GPL version 3, see LICENSE_GPLv3.txt files for details 
+     GPL version 3, see LICENSE_GPLv3.txt files for details
 """
-function rbgetbulk(cfg::RBConfig, prop::Array{Float64})
-    cfg.prop = prop[1, :, :]
-    prop_mat = mxcall(:rbgetbulk, 1, cfg.cfg)
-    bkprop = zeros(Float64, size(prop, 1), size(prop, 3)...)
-    if !hasproperty(cfg, :bulk)
-        if !isempty(prop)
-            nn = size(cfg.node, 1)
-            ne = size(cfg.elem, 1)
-            # prop = Dict()
-            # if !(cfg.prop isa Dict)
-            #     prop[""] = cfg.prop
-            # else
-            #     prop = cfg.prop
-            # end
-            wavelengths = cfg.wavelengths
-            for i ∈ eachindex(wavelengths)
-                pp = prop[i, :, :]
-                # @show size(pp), size(prop), size(bkprop), size(bkprop[i, :])
-                if size(pp, 1) < min(nn, ne) # label based prop
-                    if hasproperty(cfg, :seg)
-                        if length(cfg.seg) == nn
-                            bkprop[i, :] = pp[cfg.seg[cfg.face[1]]+1, :]
-                        elseif length(cfg.seg) == ne
-                            xyi = findall(!=(0), cfg.elem .== cfg.face[1])
-                            bkprop[i, :] = pp[Int(cfg.seg[xyi[1][1]])+1, :]
-                        else
-                            error("cfg.seg must match the length of node or elem")
-                        end
+function rbgetbulk(cfg::RBConfigJL, prop::Array{FT}) where {FT}
+    if isnothing(cfg.bulk)
+        bkprop = zeros(Float64, size(prop, 1), size(prop, 3)...)
+        node = convert(Array{Float64}, cfg.node)
+        elem = convert(Array{Int64}, cfg.elem)
+        wavelengths = convert(Vector{String}, cfg.wavelengths)
+        nn = size(node, 1)
+        ne = size(elem, 1)
+        # wavelengths = cfg.wavelengths
+        for i ∈ eachindex(wavelengths)
+            pp = prop[i, :, :]
+            if size(prop, 2) < min(nn, ne) # label based prop
+                if !isnothing(cfg.seg)
+                    seg = convert(Array{Int64}, cfg.seg)
+                    face = convert(Array{Int64}, cfg.face)
+                    if length(seg) == nn
+                        bkprop[i, :] = pp[seg[face[1]]+1, :]
+                    elseif length(seg) == ne
+                        xyi = findall(!=(0), elem .== face[1])
+                        bkprop[i, :] = pp[seg[xyi[1][1]]+1, :]
                     else
-                        error("labeled proper is defined, but cfg.seg is not given")
+                        error("cfg.seg must match the length of node or elem")
                     end
-                elseif size(pp, 1) == nn # node based prop
-                    bkprop[i, :] = pp[cfg.face[1], :]
-                elseif size(pp, 1) == ne # elem based prop
-                    xyi = findall(!=(0), cfg.elem .== cfg.face(1))
-                    bkprop[i, :] = pp[xyi[1][1], :]
                 else
-                    error("row number of cfg.prop is invalid")
+                    error("labeled proper is defined, but cfg.seg is not given")
                 end
+            elseif size(prop, 2) == nn # node based prop
+                face = convert(Array{Int64}, cfg.face)
+                bkprop[i, :] = pp[face[1], :]
+            elseif size(prop, 2) == ne # elem based prop
+                face = convert(Array{Int64}, cfg.face)
+                xyi = findall(!=(0), elem .== face[1])
+                bkprop[i, :] = pp[xyi[1][1], :]
+            else
+                error("row number of cfg.prop is invalid")
             end
         end
     else
-        bkprop[0] = [0. 0. 0. 1.37]
-        if hasproperty(cfg.bulk, :mua)
-            bkprop[0][1] = cfg.bulk.mua
+        bkprop = zeros(Float64, size(prop, 1), size(prop, 3)...)
+        # bkprop[0] = [0. 0. 0. 1.37]
+        # if !isnothing(cfg.bulk.mua)
+        #     bkprop[0][1] = cfg.bulk.mua
+        # end
+        # if !isnothing(cfg.bulk.dcoeff)
+        #     bkprop[0][2] = 1 / (3 * cfg.bulk.dcoeff)
+        #     bkprop[0][3] = 0
+        # end
+        # if !isnothing(cfg.bulk.musp)
+        #     bkprop[0][2] = cfg.bulk.musp
+        #     bkprop[0][3] = 0
+        # end
+        # if !isnothing(cfg.bulk.g)
+        #     bkprop[0][3] = cfg.bulk.g
+        # end
+        # if !isnothing(cfg.bulk.n)
+        #     bkprop[0][4] = cfg.bulk.n
+        # end
+    end
+    return bkprop
+end
+
+
+function rbgetbulk(node::AbstractArray{<:AbstractFloat},
+                   elem::Array{<:Integer},
+                   face::Array{<:Integer},
+                   wavelengths::Array{String}, 
+                   prop::Array{<:AbstractFloat}
+                   )
+    bkprop = zeros(Float64, (size(prop, 1)), (size(prop, 3))...)
+    nn = size(node, 1)
+    ne = size(elem, 1)
+    for i ∈ eachindex(wavelengths)
+        pp = prop[i, :, :]
+        if size(pp, 1) == nn # node based prop
+            bkprop[i, :] = pp[face[1], :]
+        elseif size(pp, 1) == ne # elem based prop
+            xyi = findall(!=(0), elem .== face[1])
+            bkprop[i, :] = pp[xyi[1][1], :]
+        else
+            error("row number of cfg.prop is invalid")
         end
-        if hasproperty(cfg.bulk, :dcoeff)
-            bkprop[0][2] = 1 / (3 * cfg.bulk.dcoeff)
-            bkprop[0][3] = 0
-        end
-        if hasproperty(cfg.bulk, :musp)
-            bkprop[0][2] = cfg.bulk.musp
-            bkprop[0][3] = 0
-        end
-        if hasproperty(cfg.bulk, :g)
-            bkprop[0][3] = cfg.bulk.g
-        end
-        if hasproperty(cfg.bulk, :n)
-            bkprop[0][4] = cfg.bulk.n
+    end
+    return bkprop
+end
+
+function rbgetbulk(node::AbstractArray{<:AbstractFloat},
+                   elem::AbstractArray{<:Integer},
+                   face::AbstractArray{<:Integer},
+                   seg::AbstractArray{<:Integer},
+                   wavelengths::Array{String}, 
+                   prop::Array{<:AbstractFloat}
+                   )
+    nn = size(node, 1)
+    ne = size(elem, 1)
+    @assert size(prop, 2) < min(nn, ne)
+    bkprop = zeros(Float64, (size(prop, 1)), (size(prop, 3))...)
+
+    for i ∈ eachindex(wavelengths)
+        pp = prop[i, :, :]
+        if length(seg) == nn
+            bkprop[i, :] = pp[seg[face[1]] + 1, :]
+        elseif length(seg) == ne
+            xyi = findall(!=(0), elem .== face[1])[1][1]
+            bkprop[i, :] = pp[seg[xyi] + 1, :]
+        else
+            error("cfg.seg must match the length of node or elem")
         end
     end
     return bkprop
@@ -179,39 +222,31 @@ end
  -- this function is part of Redbird-m toolbox
 
 """
-function rbmeshprep(cfg::RBConfig, prop::Array{Float64})
-    mat"addpath($(redbird_m_path))"
-    cfg.prop = prop
-    if !hasproperty(cfg, :node) || !hasproperty(cfg, :elem)
-        error("cfg.node or cfg.elem is missing")
+function rbmeshprep(cfg::RBConfigJL, prop::Array{Float64})
+    if isnothing(cfg.node) || isnothing(cfg.elem)
+        error("cfg.node or cfg.elem is empty")
     end
-    cfg.elem[:, 1:4] = mxcall(:meshreorient, 1, cfg.node[:, 1:3], cfg.elem[:, 1:4])
-    # cfg.elem[:,1:4] = meshreorient(cfg.node[:, 1:3], cfg.elem[:, 1:4])
-    
+    cfg.elem[:, 1:4] = JlMatBindings.meshreorient(cfg.node[:, 1:3], cfg.elem[:, 1:4])[1]
 
-    if (!hasproperty(cfg, :seg) || isempty(cfg.seg)) && size(cfg.elem, 2) > 4
+    if isnothing(cfg.seg) && size(cfg.elem, 2) > 4
         cfg.seg = cfg.elem[:, 5]
         cfg.elem[:, 5] = []
     end
-    if !hasproperty(cfg, :isoriented) || isempty(cfg.isreoriented) || cfg.isreoriented==0
-        cfg.elem = mxcall(:meshreorient, 1, cfg.node, cfg.elem[:, 1:4])
-        # cfg.elem = meshreorient(cfg.node,cfg.elem[:,1:4])
-        cfg.isreoriented = 1
+    if !cfg.isreoriented
+        cfg.elem = JlMatBindings.meshreorient(cfg.node, cfg.elem[:, 1:4])[1]
+        cfg.isreoriented = true
     end
-    if !hasproperty(cfg, :face) || isempty(cfg.face)
-        cfg.face = mxcall(:volface, 1, cfg.elem)
+    if isnothing(cfg.face)
+        cfg.face = JlMatBindings.volface(cfg.elem)
     end
-    if !hasproperty(cfg, :area) || isempty(cfg.area)
-        cfg.area = mxcall(:elemvolume, 1, cfg.node, cfg.face)
-        # cfg.area=elemvolume(cfg.node,cfg.face)
+    if isnothing(cfg.area)
+        cfg.area = JlMatBindings.elemvolume(cfg.node, cfg.face)
     end
-    if !hasproperty(cfg, :evol) || isempty(cfg.evol)
-        cfg.evol = mxcall(:elemvolume, 1, cfg.node, cfg.elem)
-        # cfg.evol = elemvolume(cfg.node, cfg.elem)
+    if isnothing(cfg.evol)
+        cfg.evol = JlMatBindings.elemvolume(cfg.node, cfg.elem)
     end
-    if !hasproperty(cfg, :nvol) || isempty(cfg.nvol)
-        cfg.nvol = mxcall(:nodevolume, 1, cfg.node, cfg.elem, cfg.evol)
-        # cfg.nvol = nodevolume(cfg.node, cfg.elem, cfg.evol)
+    if isnothing(cfg.nvol)
+        cfg.nvol = JlMatBindings.nodevolume(cfg.node, cfg.elem, cfg.evol)
     end
     if !isempty(findall(==(0), cfg.evol))
         print("degenerated elements are detected: [' sprintf('%d ',find(cfg.evol==0)) ']\n']);")
@@ -220,64 +255,54 @@ function rbmeshprep(cfg::RBConfig, prop::Array{Float64})
               "widefield source, please rerun mmcsrcdomain and setting"*
               "Expansion'' option to a larger value (default is 1)")
     end
-    if !hasproperty(cfg, :srcpos)
-        error("cfg.srcpos field is missing")
+    if isnothing(cfg.srcpos)
+        error("cfg.srcpos field is empty")
     end
-    if !hasproperty(cfg, :srcdir)
-        error("cfg.srcdir field is missing")
+    if isnothing(cfg.srcdir)
+        error("cfg.srcdir field is empty")
     end
-    if hasproperty(cfg, :prop) && hasproperty(cfg, :param)
-        cfg.prop = rbupdateprop(cfg)
-    end
+
+    # TODO: Decide on where this will go
+    # if hasproperty(cfg, :prop) && hasproperty(cfg, :param)
+    #     cfg.prop = rbupdateprop(cfg)
+    # end
+
     # compute R_eff - effective reflection coeff, and musp0 - background mus'
-    if !hasproperty(cfg, :reff) || isempty(cfg.reff)
+    if isnothing(cfg.reff)
         bkprop = rbgetbulk(cfg, prop)
         cfg.reff = zeros(Float64, length(cfg.wavelengths), 1)
-        cfg.musp0 = zeros(Float64, length(cfg.wavelengths), 1)
+        cfg.μ_sp0 = zeros(Float64, length(cfg.wavelengths), 1)
         for i ∈ eachindex(cfg.wavelengths)
             prop = bkprop[i, :, :]
-            cfg.reff[i] = mxcall(:rbgetreff, 1, prop[4], 1.)
-            cfg.musp0[i] = prop[2] * (1 - prop[3])
+            cfg.reff[i] = JlMatBindings.rbgetreff(prop[4], 1.)
+            cfg.μ_sp0[i] = prop[2] * (1 - prop[3])
         end
     end
-    if hasproperty(cfg, :srctype) && (cfg.srctype != "pencil" || cfg.srctype != "isotropic")
+
+    if !isnothing(cfg.srctype) && (cfg.srctype != :pencil || cfg.srctype != :isotropic)
         cfg.srcpos0 = cfg.srcpos
-        cfg.srcpos = mxcall(:rbsrc2bc, 1, cfg.cfg)
-    # if(isfield(cfg,'srctype') && ~ismember(cfg.srctype,{'pencil','isotropic'}))
-        # cfg.srcpos0=cfg.srcpos;
-        # cfg.srcpos=rbsrc2bc(cfg);
+        cfg.srcpos = JlMatBindings.rbsrc2bc(cfg, prop)
     end
-    if hasproperty(cfg, :dettype) && (cfg.srctype != "pencil" || cfg.srctype != "isotropic")
-    # if(isfield(cfg,'dettype') && ~ismember(cfg.dettype,{'pencil','isotropic'}))
+    if !isnothing(cfg.dettype) && (cfg.srctype != :pencil || cfg.srctype != :isotropic)
         cfg.detpos0 = cfg.detpos
-        cfg.detpos = mxcall(:rbsrc2bc, 1, cfg.cfg, 1)
-        # cfg.detpos = rbsrc2bc(cfg,1);
+        cfg.detpos = JlMatBindings.rbsrc2bc(cfg, prop, 1)
     end
-    if !hasproperty(cfg, :cols)
-    # if(~isfield(cfg,'cols') || isempty(cfg.cols))
-        (cfg.rows, cfg.cols, cfg.idxcount) = mxcall(:rbfemnz, 3, cfg.elem, size(cfg.node, 1))
-        # [cfg.rows,cfg.cols,cfg.idxcount]=rbfemnz(cfg.elem,size(cfg.node,1));
+    if isnothing(cfg.cols)
+        (cfg.rows, cfg.cols, cfg.idxcount) = JlMatBindings.rbfemnz(cfg.elem, size(cfg.node, 1))
     end
     
-    if !hasproperty(cfg, :idxsum)
-    # if(~isfield(cfg,'idxsum') || isempty(cfg.idxsum))
+    if isnothing(cfg.idxsum)
         cfg.idxsum = cumsum(cfg.idxcount, dims=1)
-        # cfg.idxsum=cumsum(cfg.idxcount);
     end
 
-    if !hasproperty(cfg, :∇̇ϕ_i∇ϕ_j)
-    
-    # if(~isfield(cfg,'∇ϕ_i∇ϕ_j') || isempty(cfg.deldotdel))
-        cfg.∇̇ϕ_i∇ϕ_j = rb∇̇ϕ_i∇ϕ_j(cfg)
+    if isnothing(cfg.∇ϕ_i∇ϕ_j)
+        cfg.∇ϕ_i∇ϕ_j = rb∇̇ϕ_i∇ϕ_j(cfg)[1]
     end
 
-    if !hasproperty(cfg, :omega)
-    # if(~isfield(cfg,'omega') || isempty(cfg.omega))
-        cfg.omega = zeros(Float64, length(cfg.wavelengths), 1)
-        #@show size(cfg.omega)
+    if isnothing(cfg.ω)
+        cfg.ω = zeros(Float64, length(cfg.wavelengths), 1)
     end
-    newcfg = cfg
-    return newcfg
+    return cfg
 end
 
 """
@@ -309,6 +334,18 @@ end
 function rbgetltr(cfg::RBConfig, props::Array{Float64}, wavelength=1)
     # @show size(rbgetbulk(cfg, props))
     bkprop = rbgetbulk(cfg, props)[wavelength, :]
+    # if bkprop isa Dict
+    #     if isnothing(wavelength)
+    #         wavelength = collect(keys(bkprop))[1]
+    #     end
+    #     bkprop = bkprop[wavelength]
+    # end
+    ltr = 1 / (bkprop[1] + bkprop[2] * (1 - bkprop[3]))
+    return ltr
+end
+
+function rbgetltr(bkprop::Array{Float64})
+    # @show size(rbgetbulk(cfg, props))
     # if bkprop isa Dict
     #     if isnothing(wavelength)
     #         wavelength = collect(keys(bkprop))[1]
@@ -371,6 +408,30 @@ function rbgetoptodes(cfg::RBConfig, props::Array{Float64})
 end
 
 
+function rbgetoptodes(node::Array{Float64}, bkprop::Array{Float64}, 
+                      srcpos::Matrix{Float64}, srcdir::Matrix{Float64},
+                      detpos::Matrix{Float64}, detdir::Matrix{Float64})
+
+    pointsrc = []
+    widesrc = []
+
+    ltr = rbgetltr(bkprop)
+
+    if size(srcpos, 2) == size(node, 1)
+        widesrc = cfg.srcpos
+    else
+        pointsrc = srcpos + repeat(srcdir * ltr, size(srcpos, 1), 1)
+    end
+
+    if size(detpos, 2) == size(node, 1)
+        widesrc = [widesrc; detpos]
+    else
+        pointsrc = [pointsrc; detpos + repeat(detdir * ltr, size(detpos, 1), 1)]
+    end
+
+    return (pointsrc, widesrc)
+end
+
 
 """
 
@@ -405,10 +466,10 @@ end
  -- this function is part of Redbird.jl toolbox
 
 """
-function rb∇̇ϕ_i∇ϕ_j(cfg::RBConfig)
+function rb∇̇ϕ_i∇ϕ_j(cfg::RBConfigJL)
     no = cfg.node
     el = cfg.elem[:, 1:4]
-    no = permutedims(no[Int.(el'), :], (3, 1, 2))
+    no = permutedims(no[el', :], (3, 1, 2))
 
 
     ∇ϕ = zeros(3, 4, size(el, 1))
@@ -440,7 +501,7 @@ function rb∇̇ϕ_i∇ϕ_j(cfg::RBConfig)
         end
     end
     ∇ϕ_i∇ϕ_j = ∇ϕ_i∇ϕ_j .* repeat(cfg.evol[:], 1, 10)
-    return (∇ϕ_i∇ϕ_j=∇ϕ_i∇ϕ_j, ∇ϕ=∇ϕ)
+    return (∇ϕ_i∇ϕ_j, ∇ϕ)
 end
 
 
@@ -516,6 +577,43 @@ function rbfemrhs(cfg::RBConfig, props::Array{Float64})
     return rhs, loc, bary, optode
 end
 
+
+function rbfemrhs(node::Array{Float64}, elem::Array{Int}, 
+                  bkprop::Array{Float64}, srcpos::Array{Float64}, srcdir::Array{Float64},
+                  detpos::Array{Float64}, detdir::Array{Float64})
+
+    (optode, widesrc) = rbgetoptodes(node, bkprop, srcpos, srcdir, detpos, detdir)
+
+    if size(optode, 1) < 1 && size(widesrc, 1) < 1
+        error("you must provide at least one source or detector")
+    end
+
+    loc = []
+    bary = []
+
+    if !isempty(widesrc) && (size(widesrc, 2) == size(node, 1))
+        rhs = widesrc'
+        loc = NaN * ones(1, size(widesrc, 1))
+        bary = NaN * ones(size(widesrc, 1), 4)
+    end
+
+    if isempty(optode)
+        return
+    end
+
+    rhs = sparse(zeros(size(node, 1), size(widesrc, 1) + size(optode, 1)))
+    (newloc, newbary) = tsearchn(node, elem, optode)
+
+    loc = [loc; newloc]
+    bary = [bary; newbary]
+
+    for i = 1:size(optode, 1)
+        if !isnan(newloc[i])
+            rhs[elem[Int(newloc[i]), :], i+size(widesrc, 1)] = newbary[i, :]
+        end
+    end
+    return rhs, loc, bary, optode
+end
 
 """
  [detval, goodidx]=rbfemgetdet(ϕ, cfg, optodeloc, optodebary)
@@ -944,9 +1042,93 @@ function rbfemlhs(cfg::RBConfig, prop::Array{Float64}, ∇̇ϕ_i∇ϕ_j::Array{F
     # @show Adiagbc_julia ≈ Adiagbc_mat
     # @show Aoffdbc_julia ≈ Aoffdbc_mat
     
-    return (Amat, ∇̇ϕ_i∇ϕ_j)
+    return Amat
 end
 
+
+function rbfemlhs(node::Array{Float64}, elem::Array{Int}, face::Array{Int},
+                  edges::Array{Int},
+                  area::Vector{Float64},
+                  reff::Array{Float64},
+                  ω::Matrix{Float64}, seg::Array{Int}, 
+                  wavelengths::Vector{String},
+                  evol::Vector{Float64}, ∇̇ϕ_i∇ϕ_j::Array{Float64}, prop::Array{Float64}, wavelength=1)
+    nn = size(node, 1)
+    ne = size(elem, 1)
+
+    R_C0 = 1.0 / 299792458000.0
+
+    Reff = reff[wavelength]
+    ω = ω[wavelength]
+    # pp = prop[wavelength]
+    pp = prop[wavelength, :, :]
+
+    # get mua from prop(:,1) if cfg.prop has wavelengths
+    if size(pp, 1) == nn || size(pp, 1) == ne
+        mua = pp[:, 1]
+        if size(pp, 2) < 3
+            musp = pp[:, 2]
+        else
+            musp = pp[:, 2] .* (1 - pp[:, 3])
+        end
+    elseif size(pp, 1) < min(nn, ne) # use segmentation based prop list
+        mua = pp[seg .+ 1, 1]
+        if size(pp, 2) < 3
+            musp = pp[seg .+ 1, 2] # assume g is 0
+        else
+            musp = pp[seg .+ 1, 2] .* (1 .- pp[seg .+ 1, 3])
+        end
+    end
+    dcoeff = 1 ./ (3 * (mua + musp))
+
+
+    if size(pp, 1) < min(nn, ne)
+        nref = rbgetbulk(node, elem, face, seg, wavelengths, prop)[wavelength, :][4]
+    else
+        nref = pp[:, 4]
+    end
+    # Reff = cfgreff
+
+    # @show size(dcoeff)
+    # edges = meshedge(elem)
+    # what LHS matrix needs is dcoeff and μ_a, must be node or elem long
+    if length(mua) == size(elem, 1)  # element based property
+        Aoffd = ∇̇ϕ_i∇ϕ_j[:, vcat(2:4, 6:7, 9)] .* repeat(dcoeff[:], 1, 6) + repeat(0.05 * mua[:] .* evol[:], 1, 6)
+        Adiag = ∇̇ϕ_i∇ϕ_j[:, [1, 5, 8, 10]] .* repeat(dcoeff[:], 1, 4) + repeat(0.10 * mua[:] .* evol[:], 1, 4)
+        dcoeff = Array(dcoeff)
+        if ω > 0
+            Aoffd = complex(Aoffd, repeat(0.05 * ω * R_C0 * nref[:] .* evol[:], 1, 6))
+            Adiag = complex(Adiag, repeat(0.10 * ω * R_C0 * nref[:] .* evol[:], 1, 4))
+        end
+    else  # node based properties
+        w1 = (1 / 120) * [2 2 1 1; 2 1 2 1; 2 1 1 2; 1 2 2 1; 1 2 1 2; 1 1 2 2]'
+        w2 = (1 / 60) * (Diagonal([2 2 2 2]) + 1)
+        mua_e = reshape(mua[elem], size(elem))
+        if length(nref) == 1
+            nref_e = nref * ones(size(elem))
+        else
+            nref_e = reshape(nref[elem], size(elem))
+        end
+        dcoeff_e = mean(reshape(dcoeff[elem], size(elem)), 2)
+        Aoffd = ∇̇ϕ_i∇ϕ_j[:, vcat(2:4, 6:7, 9)] .* repeat(dcoeff_e, 1, 6) + (mua_e * w1) .* repeat(evol[:], 1, 6)
+        Adiag = ∇̇ϕ_i∇ϕ_j[:, [1, 5, 8, 10]] .* repeat(dcoeff_e, 1, 4) + (mua_e * w2) .* repeat(evol[:], 1, 4)
+        if ω > 0
+            Aoffd = complex(Aoffd, (ω * R_C0) * (nref_e * w1) .* repeat(evol[:], 1, 6))
+            Adiag = complex(Adiag, (ω * R_C0) * (nref_e * w2) .* repeat(evol[:], 1, 4))
+        end
+    end
+    # add partial current boundary condition
+    edgebc = sort(meshedge(face), dims=2)
+    Adiagbc = area[:] * ((1 - Reff) / (12 * (1 + Reff)))
+    Adiagbc = repeat(Adiagbc, 1, 3)
+    Aoffdbc = Adiagbc * 0.5
+
+    Amat = sparse([edges[:, 1]; edges[:, 2]; elem[:]; edgebc[:, 1]; edgebc[:, 2]; face[:]],
+        [edges[:, 2]; edges[:, 1]; elem[:]; edgebc[:, 2]; edgebc[:, 1]; face[:]],
+        [Aoffd[:]; Aoffd[:]; Adiag[:]; Aoffdbc[:]; Aoffdbc[:]; Adiagbc[:]])
+    
+    return Amat
+end
 
 """
 
@@ -1065,7 +1247,7 @@ end
 function rbrunforward(cfg::RBConfig; kwargs...)
 
     if !hasproperty(cfg, :∇ϕ_i∇ϕ_j)
-        cfg.∇ϕ_i∇ϕ_j = rb∇̇ϕ_i∇ϕ_j(cfg)
+        cfg.∇ϕ_i∇ϕ_j = rb∇̇ϕ_i∇ϕ_j(cfg)[1]
         deldotdel = mxcall(:rbdeldotdel, 1, cfg.cfg)
         #@show cfg.∇ϕ_i∇ϕ_j == deldotdel
     end
