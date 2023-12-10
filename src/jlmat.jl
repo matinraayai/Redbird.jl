@@ -1,7 +1,7 @@
 """
 Contains Julia bindings to Redbird-M, and iso2mesh. They cannot be used directly 
-for differentiation with Enzyme.
-Functions requiring differentiation are already ported to Julia. 
+for differentiation with Enzyme or ChainRules.jl. They can, however, be used with
+FiniteDiff.jl. Functions requiring differentiation are already ported to Julia. 
 They are also used for testing the Julia implementations.
 """
 #TODO Can this work with Octave.jl?
@@ -9,7 +9,7 @@ module JlMatBindings
 
 using MATLAB
 
-using ..Structs: RBConfigJL
+using ..Structs: RBConfig
 
 is_redbird_m_initialized = false
 
@@ -35,9 +35,10 @@ function init_iso2mesh()
     end
 end
 
-function jlcfg2mx(cfg::RBConfigJL, prop::Union{Array{<:AbstractFloat}, Nothing} = nothing)
+function jlcfg2mx(cfg::RBConfig, prop::Union{Array{<:AbstractFloat}, Nothing} = nothing)
     out = Dict{Symbol, Any}()
-    for p ∈ propertynames(cfg)
+    for p ∈ keys(cfg)
+        # Change the keys to be MATLAB compatible
         k = begin
             if p == :∇ϕ_i∇ϕ_j
                 :deldotdel
@@ -102,7 +103,7 @@ function rbgetreff(n_in, n_out)
 end
 
 
-function rbsrc2bc(cfg::RBConfigJL, prop::Union{Array{<:AbstractFloat}, Nothing}=nothing, isdet=0)
+function rbsrc2bc(cfg::RBConfig, prop::Union{Array{<:AbstractFloat}, Nothing}=nothing, isdet=0)
    init_redbird_m()
    return mxcall(:rbsrc2bc, 1, jlcfg2mx(cfg, prop), isdet) 
 end
@@ -110,6 +111,43 @@ end
 function rbfemnz(elem, nn)
     init_redbird_m()
     return mxcall(:rbfemnz, 3, elem, nn)
+end
+
+function rbfemlhs(cfg, prop, ∇ϕ_i∇ϕ_j, wavelength)
+    init_redbird_m()
+    mat_cfg = jlcfg2mx(cfg, prop)
+    Amat_mat, ∇ϕ_i∇ϕ_j_mat = mxcall(:rbfemlhs, 2, mat_cfg, ∇ϕ_i∇ϕ_j, wavelength)
+    return Amat_mat, ∇ϕ_i∇ϕ_j_mat
+end
+
+function rbmeshprep(cfg::RBConfig, prop=nothing)
+    init_redbird_m()
+    mat_cfg = jlcfg2mx(cfg, prop)
+    return RBConfig(mxcall(:rbmeshprep, 1, mat_cfg))
+end
+
+function rb∇̇ϕ_i∇ϕ_j(cfg::RBConfig)
+    init_redbird_m()
+    mat_cfg = jlcfg2mx(cfg, nothing)
+    return mxcall(:rbdeldotdel, 1, mat_cfg)
+end
+
+function rbfemrhs(cfg, prop=nothing)
+    init_redbird_m()
+    mat_cfg = jlcfg2mx(cfg, prop)
+    return mxcall(:rbfemrhs, 4, mat_cfg)
+end
+
+function rbfemsolve(Amat, rhs, method; kwargs...)
+    init_redbird_m()
+    method_str = String(method)
+    return mxcall(:rbfemsolve, 1, Amat, rhs, method_str)
+end
+
+function rbfemgetdet(ϕ, cfg, optodeloc, optodebary)
+    init_redbird_m()
+    mat_cfg = jlcfg2mx(cfg)
+    return mxcall(:rbfemgetdet, 2, ϕ, mat_cfg, optodeloc, optodebary)
 end
 
 end
